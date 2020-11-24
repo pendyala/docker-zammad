@@ -1,0 +1,176 @@
+version: '3'
+
+networks:
+  mpm-zammad:
+    driver: bridge
+
+services:
+
+  ###########################
+  ##### ZAMMAD - BACKUP #####     
+  ###########################
+  zammad-backup:
+    image: ${IMAGE_REPO}:zammad-postgresql${VERSION}
+    command: ["zammad-backup"]
+    entrypoint: /usr/local/bin/backup.sh
+    restart: ${RESTART}
+    depends_on:
+      - zammad-railsserver
+    networks:
+      - mpm-zammad
+    environment:
+      - BACKUP_SLEEP=21600
+      - HOLD_DAYS=10
+      - POSTGRESQL_USER=${POSTGRES_USER}
+      - POSTGRESQL_PASSWORD=${POSTGRES_PASS}
+    volumes:
+      - zammad-backup:/var/tmp/zammad
+      - zammad-app-data:/opt/zammad:z
+
+  ##################################
+  ##### ZAMMAD - ELASTICSEARCH #####     
+  ##################################
+  zammad-elasticsearch:
+    image: ${IMAGE_REPO}:zammad-elasticsearch${VERSION}
+    restart: ${RESTART}
+    networks:
+      - mpm-zammad
+    environment:
+      - discovery.type=single-node
+    volumes:
+      - zammad-es-data:/usr/share/elasticsearch/data
+
+  #########################
+  ##### ZAMMAD - INIT #####     
+  #########################
+  zammad-init:
+    image: ${IMAGE_REPO}:zammad${VERSION}
+    command: ["zammad-init"]
+    restart: on-failure
+    depends_on:
+      - zammad-postgresql
+    networks:
+      - mpm-zammad
+    environment:
+      - POSTGRESQL_USER=${POSTGRES_USER}
+      - POSTGRESQL_PASS=${POSTGRES_PASS}      
+    volumes:
+      - zammad-app-data:/opt/zammad:z
+
+  ##############################
+  ##### ZAMMAD - MEMCACHED #####     
+  ##############################
+  zammad-memcached:
+    image: memcached:1.6.7-alpine
+    restart: ${RESTART}
+    command: memcached -m 256M
+    networks:
+      - mpm-zammad
+
+
+  ##########################
+  ##### ZAMMAD - NGINX #####     
+  ##########################
+  zammad-nginx:
+    image: ${IMAGE_REPO}:zammad${VERSION}
+    command: ["zammad-nginx"]
+    restart: ${RESTART}
+    depends_on:
+      - zammad-railsserver
+    networks:
+      - mpm-zammad
+    environment:
+      - VIRTUAL_HOST=support.example.com
+      - NGINX_SERVER_SCHEME=https
+    volumes:
+      - zammad-app-data:/opt/zammad:z
+    ports:
+      - "9091:80"
+
+  #############################
+  ##### ZAMMAD - POSTGRES #####     
+  #############################
+  zammad-postgresql:
+    image: ${IMAGE_REPO}:zammad-postgresql${VERSION}
+    restart: ${RESTART}
+    networks:
+      - mpm-zammad
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASS}
+    volumes:
+      - zammad-pg-data:/var/lib/postgresql/data
+
+  ##########################
+  ##### ZAMMAD - RAILS #####     
+  ##########################
+  zammad-railsserver:
+    image: ${IMAGE_REPO}:zammad${VERSION}
+    command: ["zammad-railsserver"]
+    restart: ${RESTART}
+    depends_on:
+      - zammad-memcached
+      - zammad-postgresql
+    networks:
+      - mpm-zammad
+    volumes:
+      - zammad-app-data:/opt/zammad:z
+
+  ##############################
+  ##### ZAMMAD - SCHEDULER #####     
+  ##############################
+  zammad-scheduler:
+    image: ${IMAGE_REPO}:zammad${VERSION}
+    command: ["zammad-scheduler"]
+    restart: ${RESTART}
+    depends_on:
+      - zammad-memcached
+      - zammad-railsserver
+    networks:
+      - mpm-zammad
+    volumes:
+      - zammad-app-data:/opt/zammad:z
+
+  ##############################
+  ##### ZAMMAD - WEBSOCKET #####     
+  ##############################
+  zammad-websocket:
+    image: ${IMAGE_REPO}:zammad${VERSION}
+    command: ["zammad-websocket"]
+    restart: ${RESTART}
+    depends_on:
+      - zammad-memcached
+      - zammad-railsserver
+    networks:
+      - mpm-zammad
+    volumes:
+      - zammad-app-data:/opt/zammad:z
+
+volumes:
+  zammad-es-data:
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/opt/zammad/data-dir/elastic-search/data'
+
+  zammad-pg-data:
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/opt/zammad/data-dir/postgres/data'
+
+  zammad-app-data:
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/opt/zammad/data-dir/zammad/data'
+
+  zammad-backup:
+    driver: local
+    driver_opts:
+      type: 'none'
+      o: 'bind'
+      device: '/opt/zammad/data-dir/zammad/backup'
